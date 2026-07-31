@@ -1,6 +1,8 @@
-import { ipcMain, type IpcMainEvent } from 'electron';
+import { ipcMain, type IpcMainEvent, type MessagePortMain } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type { InferenceStartPayload } from '../../shared/types';
 import { streamInference } from '../llama/generate';
+import { ensureChat, addMessage } from '../db/chats';
 
 // TEMPORARY: model resolution is hardcoded until main/models/scan.ts + the
 // models DB table exist. payload.modelId is accepted but ignored for now.
@@ -13,6 +15,33 @@ export function registerInferenceIpc(): void {
     if (!port) {
       return;
     }
-    void streamInference({ port, messages: payload.messages, modelPath: TEMP_MODEL_PATH });
+    void handleInference(port, payload);
   });
+}
+
+async function handleInference(port: MessagePortMain, payload: InferenceStartPayload): Promise<void> {
+  ensureChat(payload.chatId, payload.modelId);
+
+  // payload.messages is the full running transcript (sent each turn so
+  // llama.cpp has context) — only the last one is new from the db's point
+  // of view, everything before it was already persisted on a prior turn.
+  const newMessage = payload.messages[payload.messages.length - 1];
+  if (newMessage) {
+    addMessage(payload.chatId, newMessage);
+  }
+
+  const result = await streamInference({
+    port,
+    messages: payload.messages,
+    modelPath: TEMP_MODEL_PATH,
+  });
+
+  if (result.status !== 'error' && result.content) {
+    addMessage(payload.chatId, {
+      id: randomUUID(),
+      role: 'assistant',
+      content: result.content,
+      createdAt: Date.now(),
+    });
+  }
 }

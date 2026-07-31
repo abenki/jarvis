@@ -8,10 +8,20 @@ interface StreamInferenceArgs {
   modelPath: string;
 }
 
+export interface StreamResult {
+  content: string;
+  status: 'done' | 'cancelled' | 'error';
+}
+
 type PortMessage = { type: 'cancel' };
 
-export async function streamInference({ port, messages, modelPath }: StreamInferenceArgs): Promise<void> {
+export async function streamInference({
+  port,
+  messages,
+  modelPath,
+}: StreamInferenceArgs): Promise<StreamResult> {
   const controller = new AbortController();
+  let content = '';
 
   port.on('message', (event) => {
     const data = event.data as PortMessage;
@@ -32,7 +42,7 @@ export async function streamInference({ port, messages, modelPath }: StreamInfer
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: messages.map(({ role, content }) => ({ role, content })),
+        messages: messages.map(({ role, content: messageContent }) => ({ role, content: messageContent })),
         stream: true,
       }),
       signal: controller.signal,
@@ -64,21 +74,24 @@ export async function streamInference({ port, messages, modelPath }: StreamInfer
         const parsed = JSON.parse(data);
         const token: string | undefined = parsed.choices?.[0]?.delta?.content;
         if (token) {
+          content += token;
           port.postMessage({ type: 'token', token });
         }
       }
     }
 
     port.postMessage({ type: 'done' });
+    return { content, status: 'done' };
   } catch (err) {
     if (controller.signal.aborted) {
       port.postMessage({ type: 'done', reason: 'cancelled' });
-    } else {
-      port.postMessage({
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      });
+      return { content, status: 'cancelled' };
     }
+    port.postMessage({
+      type: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { content, status: 'error' };
   } finally {
     port.close();
   }

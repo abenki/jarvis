@@ -12,18 +12,20 @@ export function useInferenceStream() {
   const [error, setError] = useState<string | null>(null);
   const portRef = useRef<MessagePort | null>(null);
 
-  const start = useCallback((payload: InferenceStartPayload) => {
+  const start = useCallback((payload: InferenceStartPayload, onComplete?: (content: string) => void) => {
     setContent('');
     setError(null);
     setIsStreaming(true);
 
     const { port1, port2 } = new MessageChannel();
     portRef.current = port1;
+    let fullContent = '';
 
     port1.onmessage = (event: MessageEvent<PortMessage>) => {
       const data = event.data;
       if (data.type === 'token') {
-        setContent((prev) => prev + data.token);
+        fullContent += data.token;
+        setContent(fullContent);
         return;
       }
       if (data.type === 'error') {
@@ -32,6 +34,9 @@ export function useInferenceStream() {
       setIsStreaming(false);
       port1.close();
       portRef.current = null;
+      if (fullContent) {
+        onComplete?.(fullContent);
+      }
     };
 
     window.postMessage({ type: 'jarvis:inference:start', payload }, '*', [port2]);
