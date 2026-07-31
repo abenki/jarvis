@@ -1,7 +1,14 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
 
-import { ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import type { ModelInfo } from '../shared/types';
+
+// Plain request/response data (no MessagePort involved) can go through
+// contextBridge normally — the transfer issue below only applies to ports.
+contextBridge.exposeInMainWorld('jarvis', {
+  getDefaultModel: (): Promise<ModelInfo | null> => ipcRenderer.invoke('models:get-default'),
+});
 
 // A MessagePort created in the renderer's main world can't be passed through
 // contextBridge's function-argument marshaling (it stops being a real

@@ -3,11 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { InferenceStartPayload } from '../../shared/types';
 import { streamInference } from '../llama/generate';
 import { ensureChat, addMessage } from '../db/chats';
-
-// TEMPORARY: model resolution is hardcoded until main/models/scan.ts + the
-// models DB table exist. payload.modelId is accepted but ignored for now.
-const TEMP_MODEL_PATH =
-  '/Users/anass/.cache/huggingface/hub/models--ggml-org--gemma-4-12B-it-GGUF/snapshots/44ee90c4b61e888ac5b318a54ec7a94df61e9cd7/gemma-4-12B-it-Q4_K_M.gguf';
+import { resolveModelPath } from '../models/scan';
 
 export function registerInferenceIpc(): void {
   ipcMain.on('inference:start', (event: IpcMainEvent, payload: InferenceStartPayload) => {
@@ -20,6 +16,13 @@ export function registerInferenceIpc(): void {
 }
 
 async function handleInference(port: MessagePortMain, payload: InferenceStartPayload): Promise<void> {
+  const modelPath = resolveModelPath(payload.modelId);
+  if (!modelPath) {
+    port.postMessage({ type: 'error', message: `Model not found or unavailable: ${payload.modelId}` });
+    port.close();
+    return;
+  }
+
   ensureChat(payload.chatId, payload.modelId);
 
   // payload.messages is the full running transcript (sent each turn so
@@ -30,11 +33,7 @@ async function handleInference(port: MessagePortMain, payload: InferenceStartPay
     addMessage(payload.chatId, newMessage);
   }
 
-  const result = await streamInference({
-    port,
-    messages: payload.messages,
-    modelPath: TEMP_MODEL_PATH,
-  });
+  const result = await streamInference({ port, messages: payload.messages, modelPath });
 
   if (result.status !== 'error' && result.content) {
     addMessage(payload.chatId, {

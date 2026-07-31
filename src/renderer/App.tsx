@@ -1,15 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useInferenceStream } from './hooks/useInferenceStream';
-import type { ChatMessage } from '../shared/types';
+import type { ChatMessage, ModelInfo } from '../shared/types';
 
 function App() {
   const [chatId] = useState(() => crypto.randomUUID());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [defaultModel, setDefaultModel] = useState<ModelInfo | null>(null);
+  const [modelLoaded, setModelLoaded] = useState(false);
   const { content, isStreaming, error, start, cancel } = useInferenceStream();
 
+  useEffect(() => {
+    window.jarvis.getDefaultModel().then((model) => {
+      setDefaultModel(model);
+      setModelLoaded(true);
+    });
+  }, []);
+
   const send = () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isStreaming || !defaultModel) return;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -21,7 +30,7 @@ function App() {
     setMessages(history);
     setInput('');
 
-    start({ chatId, modelId: 'temp', messages: history }, (finalContent) => {
+    start({ chatId, modelId: defaultModel.id, messages: history }, (finalContent) => {
       setMessages((prev) => [
         ...prev,
         { id: crypto.randomUUID(), role: 'assistant', content: finalContent, createdAt: Date.now() },
@@ -32,6 +41,9 @@ function App() {
   return (
     <div style={{ padding: 16, fontFamily: 'sans-serif' }}>
       <h1>Jarvis</h1>
+      {modelLoaded && !defaultModel && (
+        <p style={{ color: 'red' }}>No models found in the managed models folder.</p>
+      )}
       <div style={{ marginBottom: 16 }}>
         {messages.map((m) => (
           <p key={m.id}>
@@ -52,7 +64,7 @@ function App() {
         placeholder="Type a message..."
       />
       <div style={{ marginTop: 8 }}>
-        <button onClick={send} disabled={isStreaming}>
+        <button onClick={send} disabled={isStreaming || !defaultModel}>
           {isStreaming ? 'Generating…' : 'Send'}
         </button>
         {isStreaming && (
