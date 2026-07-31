@@ -1,6 +1,10 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+import { stopLlamaServer } from './llama/server';
+import { registerInferenceIpc } from './ipc/inference';
+
+registerInferenceIpc();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -50,6 +54,12 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Make sure llama-server never outlives the app, whether we quit normally
+// or the process is torn down unexpectedly.
+app.on('before-quit', () => {
+  void stopLlamaServer();
 });
 
 // In this file you can include the rest of your app's specific main process
